@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./audit": "./src/audit.ts",
     "./env": "./src/env.ts",
     "./env-file": "./src/env-file.ts",
     "./errors": "./src/errors.ts",
     "./logger": "./src/logger.ts",
+    "./permissions": "./src/permissions.ts",
     "./queues": "./src/queues.ts"
   },
   "scripts": {

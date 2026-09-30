@@ -62,6 +62,29 @@ export class ForbiddenError extends AppError {
   }
 }
 
+export class ConflictError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super('conflict', message, { details });
+  }
+}
+
+export class UnauthenticatedError extends AppError {
+  constructor(message = 'Please sign in to continue', details?: unknown) {
+    super('unauthenticated', message, { details });
+  }
+}
+
+export class RateLimitedError extends AppError {
+  readonly retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number) {
+    super('rate_limited', 'Too many attempts. Please wait and try again.', {
+      details: { retryAfterSeconds },
+    });
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 export class ConfigError extends AppError {
   constructor(message: string, details?: unknown) {
     super('config_invalid', message, { details, expose: false });

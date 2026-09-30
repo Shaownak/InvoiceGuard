@@ -8,6 +8,10 @@ const validWebFs = {
   REDIS_URL: 'redis://localhost:6379',
   STORAGE_DRIVER: 'fs',
   STORAGE_FS_ROOT: '.local/storage',
+  SESSION_SECRET: 'x'.repeat(32),
+  EMAIL_FROM: 'InvoiceGuard <no-reply@invoiceguard.test>',
+  EMAIL_TRANSPORT: 'file',
+  EMAIL_FILE_DIR: '.local/mail',
 };
 
 const s3Vars = {
@@ -77,6 +81,62 @@ describe('parseEnv', () => {
       parseEnv(webEnvSchema, { ...validWebFs, NODE_ENV: 'production' }),
     );
     expect(err.message).toContain('STORAGE_DRIVER: the fs driver is for local development only');
+  });
+
+  it('requires a session secret of at least 32 characters', () => {
+    expect(
+      configError(() => parseEnv(webEnvSchema, { ...validWebFs, SESSION_SECRET: undefined }))
+        .message,
+    ).toContain('SESSION_SECRET: is required');
+    const err = configError(() =>
+      parseEnv(webEnvSchema, { ...validWebFs, SESSION_SECRET: 'short-secret-value' }),
+    );
+    expect(err.message).toContain('SESSION_SECRET: must be at least 32 characters');
+    expect(err.message).not.toContain('short-secret-value');
+  });
+
+  it('requires SMTP_URL only for the smtp email transport', () => {
+    const err = configError(() =>
+      parseEnv(webEnvSchema, { ...validWebFs, EMAIL_TRANSPORT: 'smtp' }),
+    );
+    expect(err.message).toContain('SMTP_URL: is required');
+    expect(err.message).not.toContain('EMAIL_FILE_DIR');
+    const env = parseEnv(webEnvSchema, {
+      ...validWebFs,
+      EMAIL_TRANSPORT: 'smtp',
+      EMAIL_FILE_DIR: undefined,
+      SMTP_URL: 'smtp://localhost:1025',
+    });
+    expect(env.EMAIL_TRANSPORT).toBe('smtp');
+    expect(() =>
+      parseEnv(webEnvSchema, {
+        ...validWebFs,
+        EMAIL_TRANSPORT: 'smtp',
+        SMTP_URL: 'http://localhost:1025',
+      }),
+    ).toThrow(/SMTP_URL/);
+  });
+
+  it('forbids the file email transport in production', () => {
+    const err = configError(() =>
+      parseEnv(webEnvSchema, {
+        ...validWebFs,
+        ...s3Vars,
+        STORAGE_FS_ROOT: undefined,
+        NODE_ENV: 'production',
+      }),
+    );
+    expect(err.message).toContain(
+      'EMAIL_TRANSPORT: the file transport is for local development only',
+    );
+    expect(err.message).not.toContain('STORAGE_DRIVER');
+  });
+
+  it('parses TRUST_PROXY_HEADERS as a boolean defaulting to false', () => {
+    expect(parseEnv(webEnvSchema, validWebFs).TRUST_PROXY_HEADERS).toBe(false);
+    expect(
+      parseEnv(webEnvSchema, { ...validWebFs, TRUST_PROXY_HEADERS: 'true' }).TRUST_PROXY_HEADERS,
+    ).toBe(true);
   });
 
   it('never includes variable values in the error message', () => {

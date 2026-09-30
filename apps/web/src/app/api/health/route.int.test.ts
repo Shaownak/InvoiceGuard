@@ -37,6 +37,10 @@ describe('GET /api/health against real dependencies', () => {
       REDIS_URL: infra.redisUrl,
       STORAGE_DRIVER: 'fs',
       STORAGE_FS_ROOT: storageRoot,
+      SESSION_SECRET: 'test-session-secret-0123456789abcdef',
+      EMAIL_FROM: 'InvoiceGuard <no-reply@invoiceguard.test>',
+      EMAIL_TRANSPORT: 'file',
+      EMAIL_FILE_DIR: storageRoot,
       ...overrides,
     };
     for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
