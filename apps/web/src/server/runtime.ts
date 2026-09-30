@@ -1,9 +1,13 @@
 import { Redis } from 'ioredis';
 import { createDatabase, type Database } from '@invoiceguard/db';
 import { parseEnv, webEnvSchema, type WebEnv } from '@invoiceguard/shared/env';
-import { loadWorkspaceEnvFile } from '@invoiceguard/shared/env-file';
+import { findWorkspaceRoot, loadWorkspaceEnvFile } from '@invoiceguard/shared/env-file';
 import { createLogger, type Logger } from '@invoiceguard/shared/logger';
 import { createStorage, type ObjectStorage } from '@invoiceguard/storage';
+import { sessionCookieConfig, type SessionCookieConfig } from './auth/cookies';
+import { createMailer } from './email/mailer';
+import { createRateLimiter } from './rate-limit';
+import { createServices, type Services } from './services';
 
 /**
  * Process-wide server dependencies, created once on first use. Cached on globalThis so
@@ -15,6 +19,8 @@ export interface Runtime {
   database: Database;
   redis: Redis;
   storage: ObjectStorage;
+  services: Services;
+  sessionCookie: SessionCookieConfig;
 }
 
 const holder = globalThis as typeof globalThis & { __invoiceguardRuntime?: Runtime };
@@ -48,7 +54,35 @@ function createRuntime(): Runtime {
   redis.on('error', (err: Error) => {
     logger.debug({ err: err.message }, 'redis connection error');
   });
-  return { env, logger, database, redis, storage: createStorage(env) };
+  const mailer = createMailer(env, {
+    baseDir: findWorkspaceRoot(process.cwd()) ?? process.cwd(),
+    logger,
+  });
+  const limiter = createRateLimiter(redis, {
+    onStoreError: (err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : 'unknown error' },
+        'rate limiter unavailable; allowing request',
+      );
+    },
+  });
+  const services = createServices({
+    db: database,
+    mailer,
+    limiter,
+    secret: env.SESSION_SECRET,
+    appUrl: env.APP_URL,
+    logger,
+  });
+  return {
+    env,
+    logger,
+    database,
+    redis,
+    storage: createStorage(env),
+    services,
+    sessionCookie: sessionCookieConfig(env.APP_URL),
+  };
 }
 
 /** Closes connections and forgets the runtime (tests and graceful shutdown). */
