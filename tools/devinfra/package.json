@@ -25,5 +25,8 @@
   },
   "devDependencies": {
     "@types/pg": "^8.23.1"
+  },
+  "optionalDependencies": {
+    "@embedded-postgres/windows-x64": "16.14.0-beta.17"
   }
 }

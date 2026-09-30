@@ -1,4 +1,6 @@
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import EmbeddedPostgres from 'embedded-postgres';
@@ -39,12 +41,68 @@ export async function startNativePostgres(options: NativePostgresOptions): Promi
   if (!existsSync(join(options.dataDir, 'PG_VERSION'))) {
     await server.initialise();
   }
+  if (process.platform === 'win32') return startWithPgCtl(options);
   await server.start();
   return {
     host: 'localhost',
     port: options.port,
     stop: () => server.stop(),
   };
+}
+
+/**
+ * Windows: postgres.exe refuses to run under an administrator account (GitHub's Windows
+ * runners, and developers who are local admins). embedded-postgres spawns postgres.exe
+ * directly; pg_ctl instead starts it with a restricted token, which works for admins and
+ * non-admins alike.
+ */
+async function startWithPgCtl(options: NativePostgresOptions): Promise<NativePostgres> {
+  // Windows-only optional dependency: a variable specifier keeps typecheck working on
+  // Linux/macOS where the package is not installed.
+  const specifier = '@embedded-postgres/windows-x64';
+  const binaries: unknown = await import(specifier);
+  if (typeof binaries !== 'object' || binaries === null || !('pg_ctl' in binaries)) {
+    throw new Error(`${specifier} does not export pg_ctl`);
+  }
+  const pg_ctl = String(binaries.pg_ctl);
+  const logFile = join(options.dataDir, 'server.log');
+  const serverOptions = `-p ${String(options.port)} -c listen_addresses=localhost`;
+  await run(pg_ctl, [
+    'start',
+    '-D',
+    options.dataDir,
+    '-l',
+    logFile,
+    '-o',
+    serverOptions,
+    '-w',
+    '-t',
+    '60',
+  ]);
+  return {
+    host: 'localhost',
+    port: options.port,
+    stop: async () => {
+      await run(pg_ctl, ['stop', '-D', options.dataDir, '-m', 'fast', '-w']);
+      if (!options.persistent) await rm(options.dataDir, { recursive: true, force: true });
+    },
+  };
+}
+
+/**
+ * Waits for the exit code only. stdio is ignored on purpose: the server started by
+ * `pg_ctl start` inherits pg_ctl's handles, so waiting for piped output to close would hang
+ * forever. Failure details are in the server log file.
+ */
+function run(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: 'ignore', windowsHide: true });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`pg_ctl ${args[0] ?? ''} exited with code ${String(code)}`));
+    });
+  });
 }
 
 export interface NativeRedis {

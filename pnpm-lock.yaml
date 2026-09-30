@@ -171,6 +171,10 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+    optionalDependencies:
+      '@embedded-postgres/windows-x64':
+        specifier: 16.14.0-beta.17
+        version: 16.14.0-beta.17
 
 packages:
 
