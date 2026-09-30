@@ -16,6 +16,19 @@ export default defineConfig({
           environment: 'node',
         },
       },
+      {
+        resolve: { alias },
+        test: {
+          name: 'integration',
+          include: ['{apps,packages,tools}/**/*.int.test.ts'],
+          exclude,
+          environment: 'node',
+          // Starts Postgres + Redis (+ S3 with Docker) once, bootstraps roles, migrates.
+          globalSetup: ['./tools/devinfra/src/vitest-global-setup.ts'],
+          testTimeout: 30_000,
+          hookTimeout: 60_000,
+        },
+      },
     ],
   },
 });

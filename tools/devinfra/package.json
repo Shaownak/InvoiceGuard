@@ -1,0 +1,29 @@
+{
+  "name": "@invoiceguard/devinfra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local and test infrastructure: native Postgres/Redis without Docker, Testcontainers with Docker.",
+  "exports": {
+    "./test-infra": "./src/test-infra.ts",
+    "./vitest-global-setup": "./src/vitest-global-setup.ts"
+  },
+  "scripts": {
+    "native": "tsx src/cli/native.ts",
+    "native:dev": "tsx src/cli/native.ts --dev",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@invoiceguard/db": "workspace:*",
+    "@invoiceguard/shared": "workspace:*",
+    "@invoiceguard/storage": "workspace:*",
+    "embedded-postgres": "16.14.0-beta.17",
+    "pg": "^8.23.0",
+    "redis-memory-server": "^0.17.1",
+    "testcontainers": "^12.2.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}

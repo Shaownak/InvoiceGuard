@@ -1,0 +1,80 @@
+# Local development services. Start with `pnpm services:docker` (runs `up -d --wait` and
+# creates the storage bucket). Without Docker, use `pnpm services:native` instead; see
+# docs/adr/0011-native-dev-services.md.
+#
+# The passwords below are local-development defaults, not secrets: every port is bound to
+# 127.0.0.1 only. They match .env.example; override via environment variables if needed.
+name: invoiceguard
+
+services:
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${IG_ADMIN_PASSWORD:-postgres_dev_password}
+      IG_OWNER_PASSWORD: ${IG_OWNER_PASSWORD:-ig_owner_dev_password}
+      IG_APP_PASSWORD: ${IG_APP_PASSWORD:-ig_app_dev_password}
+    ports:
+      - '127.0.0.1:${IG_POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./postgres/bootstrap-roles.sql:/bootstrap/bootstrap-roles.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d invoiceguard']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:8.4.7-alpine
+    # BullMQ requires noeviction: evicting queue keys silently loses jobs.
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    ports:
+      - '127.0.0.1:${IG_REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # S3-compatible object storage. MinIO no longer publishes community images, so local dev
+  # uses RustFS (Apache-2.0, S3 API compatible). See docs/adr/0012-s3-compatible-dev-storage.md.
+  storage:
+    image: rustfs/rustfs:1.0.0
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ENABLE: 'true'
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_ACCESS_KEY: ${IG_S3_ACCESS_KEY:-invoiceguard}
+      RUSTFS_SECRET_KEY: ${IG_S3_SECRET_KEY:-invoiceguard_dev_secret}
+    ports:
+      - '127.0.0.1:${IG_S3_PORT:-9000}:9000'
+      - '127.0.0.1:${IG_S3_CONSOLE_PORT:-9001}:9001'
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:9000/health']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - '127.0.0.1:${IG_SMTP_PORT:-1025}:1025'
+      - '127.0.0.1:${IG_MAILPIT_UI_PORT:-8025}:8025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres-data:
+  redis-data:
+  storage-data:

@@ -21,7 +21,7 @@
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "test:e2e": "pnpm --filter @invoiceguard/web test:e2e",
-    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm test:integration",
     "db:migrate": "pnpm --filter @invoiceguard/db migrate",
     "db:generate": "pnpm --filter @invoiceguard/db generate"
   },
