@@ -10,7 +10,7 @@
                         |           |         |
                  Postgres 16     Redis      S3-compatible
                  (RLS, pgvector  (BullMQ    object storage
-                  not needed)    queues)    (MinIO locally)
+                  not needed)    queues)    (RustFS locally)
                         ^           ^
                         |           |
                     +---+-----------+---+        +------------------+
@@ -33,7 +33,7 @@ Two deployable processes share one codebase and one database: the **web app** an
 | DB | PostgreSQL 16 | Row-level security, trigram search (`pg_trgm`), strong consistency |
 | ORM / migrations | Drizzle ORM plus SQL migrations | Typed queries, transparent SQL, easy RLS in raw SQL migrations |
 | Queue | BullMQ on Redis | Retries, backoff, rate limits, concurrency control, dashboards |
-| Storage | S3 API (MinIO in dev, S3 or R2 in prod) | Portable, signed URLs |
+| Storage | S3 API (RustFS in Docker dev, filesystem driver without Docker, S3 or R2 in prod; ADR-0011, ADR-0012) | Portable, signed URLs |
 | Auth | Own implementation on `argon2` plus DB sessions (or Auth.js if simpler), decision recorded in an ADR | Full control of tenancy and roles |
 | AI | `@anthropic-ai/sdk` behind an `ExtractionProvider` interface | Swappable, mockable |
 | Validation | Zod, `zod-to-json-schema` for tool schemas | One source of truth for shapes |
@@ -43,7 +43,7 @@ Two deployable processes share one codebase and one database: the **web app** an
 | Email | Nodemailer (Mailpit in dev) with a provider adapter | Simple |
 | Tests | Vitest, fast-check, Testcontainers, Playwright | Unit, property, integration, e2e |
 | CI | GitHub Actions | Standard |
-| Local infra | Docker Compose | One command startup |
+| Local infra | Docker Compose, or native services without Docker (ADR-0011) | One command startup |
 | Logging | pino (JSON), OpenTelemetry hooks | Structured, vendor-neutral |
 
 **Model selection:** the extraction model is set by env var `EXTRACTION_MODEL`. Check the current model IDs at docs.claude.com when configuring, and pick the cheapest model that passes the eval harness thresholds. Keep prompts and schemas independent of the model.
@@ -72,8 +72,12 @@ invoiceguard/
     testdata/              # synthetic generator + ground-truth manifest
     billing/               # plans config, Stripe helpers, usage metering
     reports/               # PDF/XLSX/CSV builders
+  tools/
+    devinfra/              # native services (no Docker), test infra (Testcontainers or native)
+    eslint/                # architecture boundary rules + their tests
   infra/
     docker-compose.yml
+    postgres/              # role bootstrap SQL shared by Docker and native modes
     Dockerfile.web
     Dockerfile.worker
   .github/workflows/ci.yml
@@ -175,7 +179,7 @@ Worker: match
 ```
 
 **Idempotency and retries**
-- Job IDs are deterministic (`extract:{invoiceId}`, `match:{invoiceId}`), so double-enqueue is harmless.
+- Job IDs are deterministic (`extract.{invoiceId}`, `match.{invoiceId}`, built by `deterministicJobId` in `packages/shared/src/queues.ts`), so double-enqueue is harmless. BullMQ forbids `:` in custom IDs (ADR-0013).
 - Findings are upserted on `(org_id, invoice_id, fingerprint)`. The fingerprint is a hash of rule ID plus the stable inputs of the finding. Findings that no longer apply after a re-run are auto-closed with resolution `superseded`, unless a human already decided on them.
 - Usage events have a unique constraint on `(org_id, kind, invoice_id)`.
 - BullMQ: 3 attempts, exponential backoff, dead-letter queue viewable in an admin page. Provider calls have a concurrency limit and honor rate-limit responses with backoff.
@@ -269,8 +273,9 @@ GET    /exports/:kind                    (csv|xlsx, streams)
 GET/PUT /rules                           GET /audit-log
 
 POST   /billing/checkout | /billing/portal    POST /webhooks/stripe
-GET    /health | /health/ready
 ```
+
+Health probes are unversioned (ADR-0008): `GET /api/health` is readiness (DB, Redis, storage; 200 or 503) and `GET /api/health/live` is liveness (no dependency checks).
 
 Conventions: cursor pagination, consistent error shape `{error:{code,message,details}}`, idempotency-key header on uploads and decisions, rate limiting per user and per org.
 
@@ -328,7 +333,7 @@ Permissions are defined once in `packages/shared/permissions.ts` as a typed map 
 
 ## 14. Deployment
 
-- **Local:** `docker compose up -d` (Postgres, Redis, MinIO, Mailpit) then `pnpm dev`.
+- **Local:** `pnpm services:docker` (Postgres, Redis, RustFS S3, Mailpit) then `pnpm dev`; or, without Docker, `pnpm dev:native` (embedded Postgres, Memurai/Redis, filesystem storage; ADR-0011).
 - **Production (default recommendation):** container images for web and worker; managed Postgres, managed Redis, S3-compatible storage. Any platform that runs containers works (Fly.io, Railway, Render, AWS ECS). Decide in an ADR at M9 based on customer data-residency needs.
 - Migrations run as a release step, never at web start-up.
 - Zero-downtime rule: migrations must be backward compatible with the previous release (expand, then contract).
@@ -337,14 +342,17 @@ Permissions are defined once in `packages/shared/permissions.ts` as a typed map 
 
 ```
 DATABASE_URL, DATABASE_OWNER_URL, REDIS_URL
-S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY
+STORAGE_DRIVER (s3|fs, fs is dev-only), STORAGE_FS_ROOT, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_FORCE_PATH_STYLE
 APP_URL, SESSION_SECRET, FIELD_ENCRYPTION_KEY, BANK_HASH_KEY
 SMTP_URL, EMAIL_FROM
 ANTHROPIC_API_KEY, EXTRACTION_PROVIDER (anthropic|mock), EXTRACTION_MODEL
 MODEL_PRICE_INPUT_PER_MTOK, MODEL_PRICE_OUTPUT_PER_MTOK
 STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_STARTER, STRIPE_PRICE_GROWTH, STRIPE_PRICE_RETRO
-SENTRY_DSN (optional), LOG_LEVEL
+SENTRY_DSN (optional), LOG_LEVEL, WORKER_CONCURRENCY
+DATABASE_ADMIN_URL (local bootstrap only, never deployed)
 ```
+
+Each process validates only the variables it uses; conditional requirements are described in ADR-0009.
 
 ## 15. Decision log (initial ADRs to write in `docs/adr/`)
 

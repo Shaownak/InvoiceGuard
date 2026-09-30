@@ -10,20 +10,31 @@ Read both before starting a milestone. If they conflict with a request in chat, 
 ## Commands
 
 ```
-pnpm install                 # install
-docker compose -f infra/docker-compose.yml up -d   # Postgres, Redis, MinIO, Mailpit
-pnpm dev                     # web + worker
-pnpm check                   # lint + typecheck + unit + integration + ground-truth (must be green before every commit)
-pnpm test                    # unit tests
-pnpm test:integration        # integration tests (Testcontainers)
-pnpm test:e2e                # Playwright
-pnpm db:migrate              # apply migrations
-pnpm db:seed                 # demo data
-pnpm gen:testdata            # synthetic corpus + ground-truth manifest
-pnpm eval:extraction         # extraction accuracy report
+pnpm install                 # install (then: cp .env.example .env)
+pnpm services:docker         # Docker: Postgres, Redis, RustFS (S3), Mailpit + create bucket
+pnpm services:native         # no Docker: embedded Postgres + Redis (Memurai on Windows), bootstrap roles, migrate
+pnpm dev                     # web (:3000) + worker
+pnpm dev:native              # services:native + dev in one command (no Docker)
+pnpm check                   # lint + format:check + typecheck + unit + integration (must be green before every commit)
+pnpm test                    # unit tests (*.test.ts)
+pnpm test:integration        # integration tests (*.int.test.ts); IG_TEST_INFRA=docker|native|auto
+pnpm test:e2e                # Playwright (needs services running + migrated DB)
+pnpm build                   # production build of the web app
+pnpm lint | pnpm format | pnpm typecheck
+pnpm db:migrate              # apply migrations (owner role, DATABASE_OWNER_URL)
+pnpm db:generate             # drizzle-kit: generate SQL migration from schema changes
+pnpm storage:ensure-bucket   # create the S3 bucket / fs storage directory
 ```
 
+Not yet implemented (added by the milestone that needs them): `pnpm db:seed` (M2),
+`pnpm gen:testdata` (M2), `pnpm eval:extraction` (M3), ground-truth suite in `pnpm check` (M4).
+
 If a command does not exist yet, create it as part of the milestone that needs it and update this list.
+
+**Local environment:** Docker is optional. Without it, use `pnpm dev:native` and
+`STORAGE_DRIVER=fs` (see docs/adr/0011-native-dev-services.md). Integration tests pick Docker
+(Testcontainers) when available and native services otherwise; S3-server tests run only
+with Docker (CI covers both).
 
 ## Non-negotiable rules
 
@@ -45,7 +56,9 @@ If a command does not exist yet, create it as part of the milestone that needs i
 - Small modules, named exports, no default exports except where Next.js requires them.
 - Errors: throw typed errors from `packages/shared/errors.ts`; API layer maps them to the standard error shape.
 - Dates: store UTC timestamps; dates-only fields (invoice date, due date) are `date`, not `timestamptz`.
-- Naming: rules are `R01` to `R19` in files like `r01-exact-duplicate.ts`. Test file next to source: `*.test.ts`.
+- Naming: rules are `R01` to `R19` in files like `r01-exact-duplicate.ts`. Test file next to source: `*.test.ts`; tests needing Postgres/Redis/S3 are `*.int.test.ts` and get connection details via `inject('testInfra')`.
+- Architecture boundaries (dependency rule, core purity, no raw `pg` outside `packages/db`, named exports) are ESLint errors defined in `tools/eslint/boundaries.js`; extend that file, and its test, rather than disabling rules inline.
+- Deterministic job IDs come from `deterministicJobId()` in `packages/shared/src/queues.ts` (BullMQ forbids `:`).
 - Comments explain *why*, not *what*. Public functions in `core` and `shared` get a short docblock.
 - UI: accessible components (labels, focus states, keyboard support), empty and error states for every list and form.
 
