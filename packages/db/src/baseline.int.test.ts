@@ -1,6 +1,6 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { createDatabase } from './client';
+import { createDatabase, UnsafeDatabaseRoleError } from './client';
 import { runMigrations } from './migrate';
 import { OWNER_ROLE } from './roles';
 
@@ -80,23 +80,21 @@ describe('app role (the foundation for row-level security)', () => {
   });
 
   it('gets DML rights on tables the owner creates later (default privileges)', async () => {
-    await withClient(infra.postgres.ownerUrl, (c) =>
-      c.query('CREATE TABLE IF NOT EXISTS public.m0_grant_probe (id int)'),
-    );
-    try {
-      await withClient(infra.postgres.appUrl, async (c) => {
-        await c.query('INSERT INTO public.m0_grant_probe VALUES (1)');
-        const res = await c.query('SELECT count(*) FROM public.m0_grant_probe');
-        expect(res.rowCount).toBe(1);
-        await expect(c.query('DROP TABLE public.m0_grant_probe')).rejects.toMatchObject({
-          code: '42501',
-        });
+    // In a scratch database: a committed probe table in the shared test database would trip
+    // the RLS enumeration test (rls.int.test.ts) running in parallel.
+    const ownerUrl = await createScratchDatabase('ig_grant_probe');
+    await runMigrations(ownerUrl);
+    const appUrl = new URL(infra.postgres.appUrl);
+    appUrl.pathname = '/ig_grant_probe';
+    await withClient(ownerUrl, (c) => c.query('CREATE TABLE public.m0_grant_probe (id int)'));
+    await withClient(appUrl.toString(), async (c) => {
+      await c.query('INSERT INTO public.m0_grant_probe VALUES (1)');
+      const res = await c.query('SELECT count(*) FROM public.m0_grant_probe');
+      expect(res.rowCount).toBe(1);
+      await expect(c.query('DROP TABLE public.m0_grant_probe')).rejects.toMatchObject({
+        code: '42501',
       });
-    } finally {
-      await withClient(infra.postgres.ownerUrl, (c) =>
-        c.query('DROP TABLE IF EXISTS public.m0_grant_probe'),
-      );
-    }
+    });
   });
 });
 
@@ -149,6 +147,15 @@ describe('createDatabase', () => {
 
   it('pings a reachable database', async () => {
     await expect(db.ping()).resolves.toBeUndefined();
+  });
+
+  it('refuses to report healthy when connected as a role that bypasses RLS', async () => {
+    const owner = createDatabase(infra.postgres.ownerUrl, { applicationName: 'ig-test' });
+    try {
+      await expect(owner.ping()).rejects.toBeInstanceOf(UnsafeDatabaseRoleError);
+    } finally {
+      await owner.close();
+    }
   });
 
   it('fails fast when the database is unreachable', async () => {

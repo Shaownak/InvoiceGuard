@@ -8,6 +8,13 @@
       "when": 1790745338131,
       "tag": "0000_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790766889231,
+      "tag": "0001_auth_tenancy",
+      "breakpoints": true
     }
   ]
 }

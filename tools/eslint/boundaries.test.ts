@@ -118,3 +118,30 @@ describe('default exports', () => {
     expect(await rulesFired(path, 'export default 1;')).toEqual([]);
   });
 });
+
+describe('RLS context settings', () => {
+  const setOrg = 'export const q = "SELECT set_config(\'app.org_id\', $1, true)";';
+  const setUserTemplate = 'export const q = (id: string) => `SET LOCAL app.user_id = ${id}`;';
+
+  it('may be named in packages/db', async () => {
+    expect(await rulesFired('packages/db/src/fixture.ts', setOrg)).toEqual([]);
+    expect(await rulesFired('packages/db/src/fixture.ts', setUserTemplate)).toEqual([]);
+  });
+
+  it.each([
+    'apps/web/src/server/fixture.ts',
+    'apps/web/src/app/page.tsx',
+    'apps/worker/src/fixture.ts',
+    'packages/storage/src/fixture.ts',
+    'packages/core/src/fixture.ts',
+  ])('may not be named in %s', async (path) => {
+    expect(await rulesFired(path, setOrg)).toContain('no-restricted-syntax');
+    expect(await rulesFired(path, setUserTemplate)).toContain('no-restricted-syntax');
+  });
+
+  it('does not flag unrelated strings', async () => {
+    expect(
+      await rulesFired('apps/web/src/server/fixture.ts', "export const s = 'app.orgs list';"),
+    ).toEqual([]);
+  });
+});
