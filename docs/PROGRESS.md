@@ -6,7 +6,7 @@ Updated at the end of every milestone (CLAUDE.md workflow).
 
 | Milestone                    | Status                                                                                 |
 | ---------------------------- | -------------------------------------------------------------------------------------- |
-| M0 Foundations               | **Done** (2026-09-30), pending your sign-off and merge of `m0-foundations` into `main` |
+| M0 Foundations               | **Done** (2026-09-30). Merged to `main`; CI green on all jobs |
 | M1 Auth, orgs, RBAC, tenancy | Not started (waiting for go-ahead)                                                     |
 | M2 to M9                     | Not started                                                                            |
 
@@ -48,8 +48,8 @@ the DB, Redis, and storage. CI passes on a clean clone._
 | Worker processes jobs                         | `workers.int.test.ts` against real Redis: ping round trip, deterministic-ID dedupe, invalid payload fails with no retries                                                                                                          | Pass                                                                                 |
 | E2E                                           | `pnpm test:e2e` (Playwright chromium): landing page, readiness 200 with 3 checks, liveness                                                                                                                                         | 3/3 pass                                                                             |
 | Production build                              | `pnpm build`                                                                                                                                                                                                                       | Pass                                                                                 |
-| `docker compose up` path                      | **Not verifiable on this PC** (no virtualization, so no Docker). Covered by CI job `e2e` (compose up, migrate, build, `next start`, Playwright with the S3 driver) and job `check` (Testcontainers incl. RustFS S3 tests)          | Pending first CI run                                                                 |
-| CI passes on a clean clone                    | **Not yet run**: the repo has no GitHub remote. Workflow: `.github/workflows/ci.yml`                                                                                                                                               | Pending remote                                                                       |
+| `docker compose up` path | CI job `e2e` (ubuntu): compose up, bucket, migrate, build, `next start`, Playwright with the S3 driver. Job `check` runs Testcontainers incl. the RustFS S3 tests | Pass ([run 36686067521](https://github.com/Shaownak/InvoiceGuard/actions/runs/36686067521)) |
+| CI passes on a clean clone | GitHub Actions on https://github.com/Shaownak/InvoiceGuard: `check` (ubuntu, Docker), `check-native` (Windows, no Docker), `e2e` (ubuntu) | Pass, all 3 jobs (run 36686067521) |
 
 ### Deviations (all recorded as ADRs)
 
@@ -67,7 +67,7 @@ the DB, Redis, and storage. CI passes on a clean clone._
 
 | #   | Issue                                                                                                                                                                                      | Plan                                                                                                       |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| K1  | CI has never run (no remote). Docker-only paths are unverified locally: compose file, Postgres init script, Testcontainers docker mode, RustFS, CI e2e job                                 | Push to GitHub when a remote exists; fix anything the first run finds                                      |
+| K1  | ~~CI never run~~ Resolved: first runs found two native-mode bugs on Windows (below), both fixed; all jobs green | Done |
 | K2  | S3 integration tests (5) are skipped in native mode                                                                                                                                        | Covered by CI `check` (Docker). Intended (ADR-0011)                                                        |
 | K3  | `pnpm start` (production mode) cannot run locally without S3, because the fs driver is refused in production                                                                               | By design (ADR-0009). Local e2e uses the dev server                                                        |
 | K4  | Next.js anonymous telemetry is on by default in dev                                                                                                                                        | Your call: set `NEXT_TELEMETRY_DISABLED=1` in `.env` / CI if you prefer. Not changed silently              |
@@ -76,6 +76,17 @@ the DB, Redis, and storage. CI passes on a clean clone._
 | K7  | On this machine, pnpm's shim does not work from Git Bash; use PowerShell or `cmd` for pnpm                                                                                                 | Environment only                                                                                           |
 | K8  | `next dev` 16.3 writes AGENTS.md/CLAUDE.md into apps/web by default                                                                                                                        | Disabled with `agentRules: false` in `next.config.ts`                                                      |
 | K9  | Windows `MAX_PATH` (260): embedded Postgres fails with `spawn ...initdb.exe ENOENT` when the repo path is deep (found while verifying commits in a temp worktree at a 100+ character path) | Clone to a path under ~90 characters (README note). Enabling Windows long paths also works but needs admin |
+
+Fixed after the first CI runs:
+
+- `check-native` failed with "Unknown Error": embedded-postgres rejected with no error value.
+  Test-infra startup now labels each step, attaches Postgres output, and emits a public
+  GitHub annotation on failure.
+- Root cause: Postgres refuses to start under an administrator account (GitHub's Windows
+  runners; also local-admin developers). On Windows the server is now started and stopped via
+  `pg_ctl`, which drops admin rights.
+- Open: `pnpm/action-setup@v4` triggers a GitHub deprecation warning (Node 20 actions).
+  Harmless; bump when a newer major is confirmed.
 
 No TODOs in code.
 
