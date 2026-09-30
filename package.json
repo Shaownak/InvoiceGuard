@@ -1,0 +1,41 @@
+{
+  "name": "invoiceguard",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @invoiceguard/web --filter @invoiceguard/worker dev",
+    "dev:native": "pnpm --filter @invoiceguard/devinfra native --dev",
+    "services:native": "pnpm --filter @invoiceguard/devinfra native",
+    "services:docker": "docker compose -f infra/docker-compose.yml up -d --wait && pnpm storage:ensure-bucket",
+    "storage:ensure-bucket": "pnpm --filter @invoiceguard/storage ensure-bucket",
+    "build": "pnpm --filter @invoiceguard/web build",
+    "start": "pnpm --filter @invoiceguard/web start",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --parallel typecheck",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "pnpm --filter @invoiceguard/web test:e2e",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test",
+    "db:migrate": "pnpm --filter @invoiceguard/db migrate",
+    "db:generate": "pnpm --filter @invoiceguard/db generate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@next/eslint-plugin-next": "^16.3.7",
+    "@types/node": "^24.19.0",
+    "eslint": "^10.11.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.2"
+  }
+}

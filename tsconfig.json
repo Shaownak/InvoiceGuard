@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // tools/eslint/*.js is plain JS (loaded by eslint.config.js) but imported by its tests.
+    "allowJs": true
+  },
+  "include": [
+    "vitest.config.ts",
+    "eslint.config.js",
+    "tools/eslint/**/*.ts",
+    "tools/eslint/**/*.js"
+  ]
+}

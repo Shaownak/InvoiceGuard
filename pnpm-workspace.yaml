@@ -1,0 +1,20 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+
+# pnpm 10 blocks dependency install scripts unless listed here.
+onlyBuiltDependencies:
+  - esbuild
+  - '@embedded-postgres/windows-x64'
+  - '@embedded-postgres/linux-x64'
+  - '@embedded-postgres/darwin-arm64'
+  - '@embedded-postgres/darwin-x64'
+  - redis-memory-server
+
+# Optional native accelerators with pure-JS fallbacks; building them needs a C toolchain.
+ignoredBuiltDependencies:
+  - cpu-features
+  - msgpackr-extract
+  - protobufjs
+  - ssh2

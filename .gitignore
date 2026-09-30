@@ -1,0 +1,31 @@
+node_modules/
+.pnpm-store/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+
+# Env files: only the example is committed
+.env
+.env.*
+!.env.example
+
+# Local native services data (embedded Postgres, filesystem storage)
+.local/
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

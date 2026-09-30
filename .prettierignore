@@ -1,0 +1,12 @@
+﻿pnpm-lock.yaml
+node_modules
+.next
+coverage
+.local
+test-results
+playwright-report
+packages/db/migrations/meta
+# Source-of-truth docs are authored by hand; do not reflow them.
+SPEC.md
+CLAUDE.md
+ARCHITECTURE.md
