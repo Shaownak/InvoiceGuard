@@ -1,0 +1,16 @@
+{
+  "name": "@invoiceguard/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@invoiceguard/shared": "workspace:*",
+    "bullmq": "^6.3.10",
+    "ioredis": "^6.0.0"
+  }
+}
