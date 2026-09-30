@@ -41,15 +41,33 @@ export async function resolveMode(
   }
 }
 
-export async function startTestInfra(mode: TestInfraMode): Promise<RunningTestInfra> {
-  const running = mode === 'docker' ? await startDocker() : await startNative();
+export type StepLogger = (step: string) => void;
+
+/** Runs `fn`, labelling any failure (including non-Error rejections) with the step name. */
+async function step<T>(name: string, log: StepLogger, fn: () => Promise<T>): Promise<T> {
+  log(name);
+  try {
+    return await fn();
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : JSON.stringify(err ?? null);
+    throw new Error(`${name} failed: ${detail}`, { cause: err });
+  }
+}
+
+export async function startTestInfra(
+  mode: TestInfraMode,
+  log: StepLogger = () => undefined,
+): Promise<RunningTestInfra> {
+  const running = mode === 'docker' ? await startDocker() : await startNative(log);
   const { postgres } = running.infra;
-  await bootstrapPostgres({
-    adminUrl: postgres.adminUrl,
-    ownerPassword: OWNER_PASSWORD,
-    appPassword: APP_PASSWORD,
-  });
-  await runMigrations(postgres.ownerUrl);
+  await step('bootstrap roles', log, () =>
+    bootstrapPostgres({
+      adminUrl: postgres.adminUrl,
+      ownerPassword: OWNER_PASSWORD,
+      appPassword: APP_PASSWORD,
+    }),
+  );
+  await step('run migrations', log, () => runMigrations(postgres.ownerUrl));
   return running;
 }
 
@@ -63,19 +81,30 @@ function urls(host: string, port: number): TestInfra['postgres'] {
   };
 }
 
-async function startNative(): Promise<RunningTestInfra> {
+async function startNative(log: StepLogger): Promise<RunningTestInfra> {
   const dataDir = join(await mkdtemp(join(tmpdir(), 'ig-test-pg-')), 'data');
   const [pgPort, redisPort] = [await freePort(), await freePort()];
-  const [postgres, redis] = await Promise.all([
-    startNativePostgres({
-      dataDir,
-      port: pgPort,
-      adminUser: 'postgres',
-      adminPassword: ADMIN_PASSWORD,
-      persistent: false,
-    }),
-    startNativeRedis(redisPort),
-  ]);
+  // Keep recent server output: embedded-postgres rejects without details when initdb fails.
+  const pgLog: string[] = [];
+  const postgres = await step('start native postgres', log, async () => {
+    try {
+      return await startNativePostgres({
+        dataDir,
+        port: pgPort,
+        adminUser: 'postgres',
+        adminPassword: ADMIN_PASSWORD,
+        persistent: false,
+        onLog: (line) => {
+          pgLog.push(line.trim());
+          if (pgLog.length > 30) pgLog.shift();
+        },
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : JSON.stringify(err ?? null);
+      throw new Error(`${detail}; postgres output:\n${pgLog.join('\n')}`, { cause: err });
+    }
+  });
+  const redis = await step('start native redis', log, () => startNativeRedis(redisPort));
   return {
     infra: {
       mode: 'native',

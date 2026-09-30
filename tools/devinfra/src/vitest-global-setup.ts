@@ -8,7 +8,19 @@ let running: RunningTestInfra | undefined;
 export async function setup(project: TestProject): Promise<void> {
   const mode = await resolveMode();
   const started = Date.now();
-  running = await startTestInfra(mode);
+  try {
+    running = await startTestInfra(mode, (step) => {
+      console.info(`[test-infra] ${step}`);
+    });
+  } catch (err) {
+    // Some libraries reject with non-Error values; Vitest then reports "Unknown Error".
+    const message = `test infra (${mode}) failed: ${describeError(err)}`;
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      // Surfaces as a public annotation on the CI run.
+      console.info(`::error title=test-infra::${message.replace(/\r?\n/g, '%0A')}`);
+    }
+    throw new Error(message, { cause: err });
+  }
   console.info(
     `[test-infra] mode=${mode} ready in ${String(Date.now() - started)}ms` +
       (mode === 'native' ? ' (no S3 server: S3 integration tests are skipped; CI runs them)' : ''),
@@ -18,4 +30,14 @@ export async function setup(project: TestProject): Promise<void> {
 
 export async function teardown(): Promise<void> {
   await running?.stop();
+}
+
+function describeError(err: unknown): string {
+  if (err instanceof Error) return `${err.name}: ${err.message}`;
+  if (err === undefined) return 'rejected with undefined (no error details)';
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return Object.prototype.toString.call(err);
+  }
 }
