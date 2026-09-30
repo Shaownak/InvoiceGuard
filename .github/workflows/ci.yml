@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Full gate with Docker-backed test infra (Testcontainers: Postgres, Redis, RustFS S3).
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      IG_TEST_INFRA: docker
+      # Docker mode needs no native Redis; skip building it from source at install.
+      REDISMS_DISABLE_POSTINSTALL: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Dependency audit
+        run: pnpm audit --prod --audit-level high
+
+  # Same gate without Docker, proving the native path (embedded Postgres + Memurai) works.
+  check-native:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      IG_TEST_INFRA: native
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+
+  # M0 acceptance end to end: compose services up, migrate, build, serve, Playwright.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REDISMS_DISABLE_POSTINSTALL: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Configure env (S3 storage against the compose RustFS service)
+        run: |
+          cp .env.example .env
+          sed -i 's/^STORAGE_DRIVER=fs/STORAGE_DRIVER=s3/; s/^STORAGE_FS_ROOT=.*//; s/^# S3_/S3_/' .env
+      - run: pnpm services:docker
+      - run: pnpm db:migrate
+      - run: pnpm build
+      - run: pnpm --filter @invoiceguard/web exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose -f infra/docker-compose.yml logs --no-color --tail 200
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
