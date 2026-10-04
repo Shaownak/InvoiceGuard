@@ -4,17 +4,17 @@ Updated at the end of every milestone (CLAUDE.md workflow).
 
 ## Status
 
-| Milestone                    | Status                                                              |
-| ---------------------------- | ------------------------------------------------------------------- |
-| M0 Foundations               | **Done** (2026-09-30). Merged to `main`; CI green on all jobs       |
-| M1 Auth, orgs, RBAC, tenancy | **Done locally** (2026-10-04) on `m1-auth-tenancy`; CI pending push |
-| M2 to M9                     | Not started                                                         |
+| Milestone                    | Status                                                                |
+| ---------------------------- | --------------------------------------------------------------------- |
+| M0 Foundations               | **Done** (2026-09-30). Merged to `main`; CI green on all jobs         |
+| M1 Auth, orgs, RBAC, tenancy | **Done** (2026-10-04). Merged to `main` (PR #1); CI green on all jobs |
+| M2 to M9                     | Not started                                                           |
 
 ---
 
 ## M1: Auth, orgs, RBAC, tenancy
 
-Branch `m1-auth-tenancy` (not pushed yet; CI runs on push).
+Merged to `main` via PR #1.
 
 ### Task list
 
@@ -36,7 +36,7 @@ Branch `m1-auth-tenancy` (not pushed yet; CI runs on push).
       with org switcher, overview, new organization, members
 - [x] Playwright e2e for the auth flows; CI e2e job switched to Mailpit SMTP
 - [x] ADRs 0007, 0015, 0016, 0017; ARCHITECTURE.md sections 4, 5, 9, 10, 14 and CLAUDE.md updated
-- [ ] CI run on GitHub (waiting for your OK to push the branch)
+- [x] CI on GitHub: `check`, `check-native`, `e2e` all green ([run 37172523312](https://github.com/Shaownak/InvoiceGuard/actions/runs/37172523312))
 
 ### Acceptance criteria and how each was verified
 
@@ -114,9 +114,7 @@ No TODOs in code.
 
 ### Next
 
-- Push `m1-auth-tenancy` and confirm the three CI jobs (`check`, `check-native`, `e2e`).
-  `e2e` now also exercises Mailpit SMTP and the production build of the auth screens.
-- Then M2 (master data, synthetic data), after your go-ahead. C9 (unit-price precision) and
+- M2 (master data, synthetic data), after your go-ahead. C9 (unit-price precision) and
   C11 (nullable `invoices.document_id`) must be decided before the M2 schema.
 
 ---
