@@ -49,7 +49,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
 
-  # M0 acceptance end to end: compose services up, migrate, build, serve, Playwright.
+  # End to end: compose services up, migrate, build, serve, Playwright (M0 smoke, M1 auth flows).
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -63,15 +63,19 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Configure env (S3 storage against the compose RustFS service)
+      - name: Configure env (compose services - RustFS S3 storage, Mailpit SMTP)
         run: |
           cp .env.example .env
           sed -i 's/^STORAGE_DRIVER=fs/STORAGE_DRIVER=s3/; s/^STORAGE_FS_ROOT=.*//; s/^# S3_/S3_/' .env
+          sed -i 's/^EMAIL_TRANSPORT=file/EMAIL_TRANSPORT=smtp/; s/^EMAIL_FILE_DIR=.*//; s/^# SMTP_URL=/SMTP_URL=/' .env
       - run: pnpm services:docker
       - run: pnpm db:migrate
       - run: pnpm build
       - run: pnpm --filter @invoiceguard/web exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+        env:
+          # The e2e mail helper reads verification and invite links from Mailpit.
+          MAILPIT_URL: http://localhost:8025
       - name: Service logs on failure
         if: failure()
         run: docker compose -f infra/docker-compose.yml logs --no-color --tail 200

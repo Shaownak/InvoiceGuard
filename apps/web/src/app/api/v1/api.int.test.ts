@@ -73,7 +73,9 @@ function request(method: string, path: string, options: Options = {}): Request {
   });
 }
 
-const noParams = { params: Promise.resolve({}) };
+// What Next.js passes to a static route: a context without `params` (an earlier version of
+// the wrapper assumed params were always present and failed every static route).
+const noParams = {};
 const withId = (id: string) => ({ params: Promise.resolve({ id }) });
 
 async function json(res: Response): Promise<Record<string, unknown>> {

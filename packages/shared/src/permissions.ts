@@ -10,6 +10,15 @@ export const ROLES = ['owner', 'admin', 'approver', 'reviewer', 'viewer'] as con
 export const roleSchema = z.enum(ROLES);
 export type Role = z.infer<typeof roleSchema>;
 
+/** Display names, shared by the UI and emails. */
+export const ROLE_LABELS: Record<Role, string> = {
+  owner: 'Owner',
+  admin: 'Admin',
+  approver: 'Approver',
+  reviewer: 'Reviewer',
+  viewer: 'Viewer',
+};
+
 /**
  * One capability per matrix row. "Confirm/dismiss findings" is split in two because the
  * matrix gives reviewers "recommend only": they may record a recommendation, not the outcome.

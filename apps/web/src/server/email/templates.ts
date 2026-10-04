@@ -1,4 +1,4 @@
-import type { Role } from '@invoiceguard/shared/permissions';
+import { ROLE_LABELS, type Role } from '@invoiceguard/shared/permissions';
 
 /**
  * Transactional emails. Names and org names are user input, so every interpolated value is
@@ -96,18 +96,6 @@ export function magicLink(input: { url: string }): RenderedEmail {
   };
 }
 
-const ROLE_LABELS: Record<Role, string> = {
-  owner: 'Owner',
-  admin: 'Admin',
-  approver: 'Approver',
-  reviewer: 'Reviewer',
-  viewer: 'Viewer',
-};
-
-export function roleLabel(role: Role): string {
-  return ROLE_LABELS[role];
-}
-
 export function invite(input: {
   inviterName: string;
   orgName: string;
@@ -119,7 +107,7 @@ export function invite(input: {
     subject: `You are invited to ${org} on InvoiceGuard`,
     ...layout(
       [
-        `${oneLine(input.inviterName)} invited you to join ${org} on InvoiceGuard as ${roleLabel(input.role)}.`,
+        `${oneLine(input.inviterName)} invited you to join ${org} on InvoiceGuard as ${ROLE_LABELS[input.role]}.`,
       ],
       { label: 'Accept invitation', url: input.url },
       'This invitation expires in 7 days.',

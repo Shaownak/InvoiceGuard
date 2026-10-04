@@ -63,14 +63,15 @@ type Handler<M extends AuthMode, S extends z.ZodType | undefined> = (
   ctx: ApiContext<M, S extends z.ZodType ? z.infer<S> : undefined>,
 ) => Promise<ApiResult>;
 
-type RouteParams = { params: Promise<Record<string, string | string[] | undefined>> };
+// Next.js passes `params` only to dynamic routes; static routes get a context without it.
+type RouteParams = { params?: Promise<Record<string, string | string[] | undefined>> };
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export function apiRoute<M extends AuthMode, S extends z.ZodType | undefined = undefined>(
   options: RouteOptions<M, S>,
   handler: Handler<M, S>,
-): (request: Request, context: RouteParams) => Promise<Response> {
+): (request: Request, context?: RouteParams) => Promise<Response> {
   return async (request, context) => {
     let runtime: Runtime | undefined;
     try {
@@ -93,7 +94,7 @@ export function apiRoute<M extends AuthMode, S extends z.ZodType | undefined = u
 
       const body = options.body === undefined ? undefined : await parseBody(request, options.body);
       const params = Object.fromEntries(
-        Object.entries(await context.params).filter(
+        Object.entries((await context?.params) ?? {}).filter(
           (entry): entry is [string, string] => typeof entry[1] === 'string',
         ),
       );
@@ -150,7 +151,10 @@ function errorResponse(err: unknown, runtime: Runtime | undefined): Response {
     // Name, message and SQLSTATE only: driver errors carry `detail` with row values (emails).
     const e = err instanceof Error ? err : new Error('non-error thrown');
     const code = 'code' in e && typeof e.code === 'string' ? e.code : undefined;
-    runtime?.logger.error({ err: { name: e.name, message: e.message, code } }, 'request failed');
+    runtime?.logger.error(
+      { err: { name: e.name, message: e.message, code, stack: e.stack } },
+      'request failed',
+    );
   }
   const headers = new Headers({ 'Cache-Control': 'no-store' });
   if (err instanceof RateLimitedError) headers.set('Retry-After', String(err.retryAfterSeconds));
