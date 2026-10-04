@@ -4,11 +4,120 @@ Updated at the end of every milestone (CLAUDE.md workflow).
 
 ## Status
 
-| Milestone                    | Status                                                        |
-| ---------------------------- | ------------------------------------------------------------- |
-| M0 Foundations               | **Done** (2026-09-30). Merged to `main`; CI green on all jobs |
-| M1 Auth, orgs, RBAC, tenancy | Not started (waiting for go-ahead)                            |
-| M2 to M9                     | Not started                                                   |
+| Milestone                    | Status                                                              |
+| ---------------------------- | ------------------------------------------------------------------- |
+| M0 Foundations               | **Done** (2026-09-30). Merged to `main`; CI green on all jobs       |
+| M1 Auth, orgs, RBAC, tenancy | **Done locally** (2026-10-04) on `m1-auth-tenancy`; CI pending push |
+| M2 to M9                     | Not started                                                         |
+
+---
+
+## M1: Auth, orgs, RBAC, tenancy
+
+Branch `m1-auth-tenancy` (not pushed yet; CI runs on push).
+
+### Task list
+
+- [x] ADR-0007: own auth (argon2id via Node's built-in `crypto.argon2`, DB sessions), not Auth.js
+- [x] Migration `0001_auth_tenancy`: organizations, users, user_credentials, memberships,
+      invites, sessions, auth_tokens, audit_log; RLS on **every** table; six reviewed
+      `SECURITY DEFINER` functions; append-only trigger; grants narrowed (ADR-0015, ADR-0016)
+- [x] `packages/db`: `withOrg` / `withUser` / `db.auth` as the only entry points; `ping()`
+      refuses a role that can bypass RLS; typed repositories
+- [x] Cross-tenant suite + RLS enumeration test (with a meta-test that each check fires)
+- [x] `packages/shared/permissions.ts` with the full matrix test and member-change rules
+- [x] Lint: only `packages/db` may name `app.org_id` / `app.user_id`
+- [x] Signup (no account enumeration), email verification, login, logout, magic link,
+      password reset, invites (7-day expiry, preview, accept, signup-from-invite), org
+      create/switch with session rotation, member role changes and removal
+- [x] Email: nodemailer, SMTP (Mailpit) or `.eml` files for native dev (ADR-0017)
+- [x] Redis rate limits per email (sign-in attempts, emails sent)
+- [x] Screens: signup, sign in, confirm email, magic link, reset, accept invite, app shell
+      with org switcher, overview, new organization, members
+- [x] Playwright e2e for the auth flows; CI e2e job switched to Mailpit SMTP
+- [x] ADRs 0007, 0015, 0016, 0017; ARCHITECTURE.md sections 4, 5, 9, 10, 14 and CLAUDE.md updated
+- [ ] CI run on GitHub (waiting for your OK to push the branch)
+
+### Acceptance criteria and how each was verified
+
+SPEC.md M1: _A cross-tenant access test suite proves that a user in org A can never read or
+write org B data at the DB level, even when app code forgets an `org_id` filter. All role
+permissions are tested against the matrix._
+
+| Criterion                                                               | Verified how                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Result     |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| Cross-tenant isolation at the DB level, even without an `org_id` filter | `packages/db/src/rls.int.test.ts` (36 tests), raw SQL as `ig_app` with org B's context against org A rows, for every `org_id` table (fixture registry): SELECT unfiltered, by id and by org A's id; UPDATE touch, steal and move; DELETE by id and unfiltered; INSERT into org A. Org A's row is compared before and after. Plus `organizations`, identity tables across users, the no-context check on every table, TRUNCATE refused on every table, and Drizzle queries through `withOrg` without filters | 36/36 pass |
+| Test fails if any table with `org_id` lacks a policy                    | Enumeration test: every table has RLS; every `org_id` policy checks `app_org_id()` (one reviewed exception); every other policy is bound to a context; no view without `security_invoker`; no unreviewed definer function; every `org_id` table has a cross-tenant fixture. A meta-test creates a probe table and shows each check firing                                                                                                                                                                   | Pass       |
+| The tests catch real regressions                                        | Mutation run against the migration: `invites` policy `USING (true)` → 8 tests fail; RLS not enabled on `memberships` → 10 fail; audit trigger removed → 2 fail. Migration restored afterwards (git clean)                                                                                                                                                                                                                                                                                                   | Pass       |
+| App role cannot bypass RLS                                              | M0 role tests, plus `ping()` reports unhealthy when connected as the owner role (test)                                                                                                                                                                                                                                                                                                                                                                                                                      | Pass       |
+| No context leak with pooled connections                                 | `withOrg` on a 1-connection pool, then a failed transaction, then `withUser`: `app_org_id()` is null afterwards                                                                                                                                                                                                                                                                                                                                                                                             | Pass       |
+| All role permissions tested against the matrix                          | `packages/shared/src/permissions.test.ts` (66 tests): a literal copy of the ARCHITECTURE.md table, every role × capability pair (55), monotonic roles, member-change rules (owner-only owner changes, last owner)                                                                                                                                                                                                                                                                                           | 66/66 pass |
+| Permissions enforced at the API for each role                           | `apps/web/src/app/api/v1/api.int.test.ts`: all 5 roles × list members, list/create/revoke invites, change role, remove member (200/201/204 for owner and admin, 403 for others); `orgs/service.int.test.ts` repeats this at the service layer                                                                                                                                                                                                                                                               | Pass       |
+| Append-only audit log (trigger)                                         | `audit-log.int.test.ts` (6): app role gets 42501 on UPDATE, DELETE, TRUNCATE; owner role gets trigger error `IG001` on all three and the row is unchanged; cross-org insert refused; entries roll back with their transaction                                                                                                                                                                                                                                                                               | 6/6 pass   |
+| Signup, verification, login, reset, magic link                          | `auth/service.int.test.ts` (12) and e2e `password reset … magic link`                                                                                                                                                                                                                                                                                                                                                                                                                                       | Pass       |
+| Invites and org switching                                               | `orgs/service.int.test.ts` (16): 7-day expiry, single use, re-invite replaces the open invite, revoke, email must match, existing account conflict, switch with token rotation, non-member switch refused, removal ends access immediately. e2e `signup, invite a colleague who joins, then switch organizations`                                                                                                                                                                                           | Pass       |
+| HTTP security                                                           | `api.int.test.ts`: CSRF (no or foreign Origin → 403), cookie `HttpOnly; SameSite=Lax; Path=/` (`__Host-` + `Secure` over HTTPS: unit test), standard error shape, 429 with `Retry-After` after 10 failed sign-ins, signup returns 202 for new and existing emails alike                                                                                                                                                                                                                                     | 27/27 pass |
+| Running app                                                             | Manual walkthrough with `pnpm dev:native`: signup with a field error, `.eml` link, confirm, invite, invitee signup (Reviewer), reviewer's members view read-only, create second org, switch back and forth in the header. Found and fixed two bugs (below)                                                                                                                                                                                                                                                  | Pass       |
+| E2E                                                                     | `pnpm test:e2e` locally (dev server, file email): 3 new auth tests + 3 M0 smoke tests                                                                                                                                                                                                                                                                                                                                                                                                                       | 6/6 pass   |
+| `pnpm check`                                                            | lint 0 problems, Prettier clean, typecheck 11 packages + root, unit 225/225, integration 131 pass + 5 skipped (S3, Docker-only as in M0)                                                                                                                                                                                                                                                                                                                                                                    | Green      |
+| `pnpm build`                                                            | Production build; session pages are dynamic, auth link pages static                                                                                                                                                                                                                                                                                                                                                                                                                                         | Pass       |
+| CI on GitHub                                                            | Not run yet: needs a push of `m1-auth-tenancy`                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Pending    |
+
+Bugs found by running the app (both fixed, with test changes):
+
+1. The API wrapper assumed Next passes `params` to every route. Static routes get none, so
+   every static `/api/v1` route returned 500. The HTTP tests had always passed `params` and
+   hid it; they now call static routes the way Next does.
+2. `next build` failed: server pages built the runtime (env validation) before `cookies()`
+   marked them dynamic, so Next tried to prerender them. Now cookies are read first.
+
+### Deviations (all recorded as ADRs)
+
+- **ADR-0015** (amends ADR-0002 and ARCHITECTURE.md section 5): RLS on every table, not only
+  tenant tables; `withUser` and `db.auth` (six definer functions) alongside `withOrg`;
+  ENABLE without FORCE (FORCE would need a superuser-created BYPASSRLS role), replaced by the
+  `ping()` role check; password hashes moved to `user_credentials`. Resolves **C7**.
+- **ADR-0016**: audit log is org-scoped (sign-in is recorded in the org it opens; password
+  reset in each of the user's orgs); purge path for org deletion designed, built in M8.
+  Resolves the design half of **C8**.
+- **ADR-0017**: file email transport for native dev; tokens in URL fragments; click-to-confirm
+  landing pages.
+- **ADR-0007**: the auth endpoints refine the sketch in ARCHITECTURE.md section 9
+  (`password-reset`, `magic-link`, `invites/preview`, `invites/accept`).
+- ARCHITECTURE.md section 10: "Confirm/dismiss findings" is two capabilities
+  (`findings.recommend` for reviewers and up, `findings.resolve` for approvers and up).
+- Signup sends a confirmation link and signs in only after it is used (FR-AUTH-1 requires
+  verification; this also keeps signup from revealing accounts).
+
+### Known issues and deferred items
+
+| #   | Issue                                                                                                                                            | Plan                                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| K10 | Rate limits are per email address only; no per-IP limits or lockout                                                                              | M8 (needs trusted proxy config)                                                                                        |
+| K11 | Sessions have a 30-day absolute lifetime, with no idle timeout or sliding renewal                                                                | Revisit with M8 hardening                                                                                              |
+| K12 | Emails are sent in the request path (no queue or retries); every flow can be retried by the user                                                 | Move to a worker queue if latency or reliability needs it                                                              |
+| K13 | FR-ORG-4 org settings UI not built: the settings don't exist yet (`organizations.settings` defaults to `{}`)                                     | Add each setting with the milestone that uses it (currency and country M2, tolerances and thresholds M4, retention M8) |
+| K14 | No audit log page yet (FR-ADM-1 filter/export); entries are recorded                                                                             | M8 (or earlier if wanted)                                                                                              |
+| K15 | No "leave organization", email change, or account deletion                                                                                       | Leave and email change when asked; deletion with GDPR in M8                                                            |
+| K16 | Signup creates the user and the org in separate transactions; a failure in between leaves a user without an org, who is then asked to create one | Acceptable; the state is handled in the UI                                                                             |
+| K17 | `crypto.argon2` is "release candidate" stability in Node 24                                                                                      | Pinned by RFC 9106 and reference-CLI vectors in tests; `@node-rs/argon2` is a drop-in (same PHC format)                |
+| K18 | New required env vars (`SESSION_SECRET`, `EMAIL_*`). Existing local `.env` files need them (this machine's `.env` was updated)                   | `cp .env.example .env` or copy the new block                                                                           |
+| K19 | E2E runs leave test users in the local dev database (`.local/postgres`)                                                                          | Harmless; delete `.local/postgres` to reset                                                                            |
+
+No TODOs in code.
+
+### Open spec issues (register update)
+
+- **C7** resolved (ADR-0015).
+- **C8** design done (ADR-0016). The purge procedure and its test land with org deletion in M8.
+- C5, C6, C9 to C14 unchanged (see the M0 register).
+
+### Next
+
+- Push `m1-auth-tenancy` and confirm the three CI jobs (`check`, `check-native`, `e2e`).
+  `e2e` now also exercises Mailpit SMTP and the production build of the auth screens.
+- Then M2 (master data, synthetic data), after your go-ahead. C9 (unit-price precision) and
+  C11 (nullable `invoices.document_id`) must be decided before the M2 schema.
 
 ---
 
@@ -109,7 +218,7 @@ determinism test lands in M2). It is not faked earlier.
 | C13 | R14 holidays need a country calendar, but core is pure                                                                                                         | Pass the calendar in as data; pick the source at M4                                                                                    | M4                 |
 | C14 | Extraction cache scope: SPEC says "by SHA-256", ARCHITECTURE says within org                                                                                   | Within org only (cross-tenant reuse would reveal another tenant uploaded the file)                                                     | M3                 |
 
-### What M1 needs
+### What M1 needed (done, see M1 above)
 
 - Decide **ADR-0007** (own auth on argon2 + DB sessions vs Auth.js) and **C7/C8**.
 - Tables: organizations, users, memberships, invites, sessions, audit_log (+ append-only

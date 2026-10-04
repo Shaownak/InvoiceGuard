@@ -7,8 +7,10 @@ export const ERROR_CODES = {
   validation_failed: 400,
   unauthenticated: 401,
   forbidden: 403,
+  email_not_verified: 403,
   not_found: 404,
   conflict: 409,
+  gone: 410,
   rate_limited: 429,
   config_invalid: 500,
   internal: 500,
@@ -59,6 +61,45 @@ export class NotFoundError extends AppError {
 export class ForbiddenError extends AppError {
   constructor(message = 'You do not have permission to do that') {
     super('forbidden', message);
+  }
+}
+
+export class ConflictError extends AppError {
+  constructor(message: string, details?: unknown) {
+    super('conflict', message, { details });
+  }
+}
+
+/** A link or invitation that was valid once but is used, revoked, or expired. */
+export class GoneError extends AppError {
+  constructor(message = 'This link is invalid or has expired.') {
+    super('gone', message);
+  }
+}
+
+export class EmailNotVerifiedError extends AppError {
+  constructor() {
+    super(
+      'email_not_verified',
+      'Please confirm your email address first. We have sent you a new confirmation link.',
+    );
+  }
+}
+
+export class UnauthenticatedError extends AppError {
+  constructor(message = 'Please sign in to continue', details?: unknown) {
+    super('unauthenticated', message, { details });
+  }
+}
+
+export class RateLimitedError extends AppError {
+  readonly retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number) {
+    super('rate_limited', 'Too many attempts. Please wait and try again.', {
+      details: { retryAfterSeconds },
+    });
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

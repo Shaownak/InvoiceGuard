@@ -9,7 +9,7 @@ const config: NextConfig = {
   // Workspace packages are published as TypeScript source.
   transpilePackages: ['@invoiceguard/shared', '@invoiceguard/db', '@invoiceguard/storage'],
   // Node-only libraries with native or dynamic requires stay out of the bundle.
-  serverExternalPackages: ['pg', 'ioredis', 'pino', '@aws-sdk/client-s3'],
+  serverExternalPackages: ['pg', 'ioredis', 'pino', '@aws-sdk/client-s3', 'nodemailer'],
 };
 
 export default config;

@@ -1,6 +1,7 @@
 # ADR-0002: Postgres row-level security for tenant isolation; `withOrg` is the only entry point
 
-- Status: Accepted (foundations in M0; tables, policies and `withOrg` in M1)
+- Status: Accepted (foundations in M0; tables, policies and `withOrg` in M1). Amended by
+  [ADR-0015](0015-database-access-contexts.md): RLS on every table, ENABLE without FORCE.
 - Date: 2026-09-30
 - Source: ARCHITECTURE.md section 15, item 2
 

@@ -52,14 +52,52 @@ function forbidFsStorageInProduction(
   }
 }
 
+// Email (ADR-0017): SMTP for Mailpit and production; `file` writes .eml files for native
+// development without a mail server and is refused in production.
+const smtpEmailSchema = z.object({
+  EMAIL_TRANSPORT: z.literal('smtp'),
+  SMTP_URL: z.url({ protocol: /^smtps?$/, error: 'must be an smtp:// or smtps:// URL' }),
+});
+
+const fileEmailSchema = z.object({
+  EMAIL_TRANSPORT: z.literal('file'),
+  EMAIL_FILE_DIR: z.string().min(1),
+});
+
+const emailSchema = z.discriminatedUnion('EMAIL_TRANSPORT', [smtpEmailSchema, fileEmailSchema], {
+  error: 'must be "smtp" or "file"',
+});
+
+function forbidFileEmailInProduction(
+  env: { NODE_ENV: string; EMAIL_TRANSPORT: string },
+  ctx: z.RefinementCtx,
+): void {
+  if (env.NODE_ENV === 'production' && env.EMAIL_TRANSPORT === 'file') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['EMAIL_TRANSPORT'],
+      message: 'the file transport is for local development only; use smtp in production',
+    });
+  }
+}
+
 export const webEnvSchema = baseSchema
   .extend({
-    APP_URL: z.url(),
+    APP_URL: z.url({ protocol: /^https?$/ }),
     DATABASE_URL: postgresUrl,
     REDIS_URL: redisUrl,
+    // Keys the HMAC that stores session and email tokens as hashes (ADR-0007). Rotating it
+    // signs everyone out and invalidates outstanding links.
+    SESSION_SECRET: z.string().min(32, 'must be at least 32 characters'),
+    EMAIL_FROM: z.string().min(3),
+    // Only behind a proxy that overwrites X-Forwarded-For may the header be trusted for the
+    // client IP recorded in the audit log.
+    TRUST_PROXY_HEADERS: z.stringbool().default(false),
   })
   .and(storageSchema)
-  .superRefine(forbidFsStorageInProduction);
+  .and(emailSchema)
+  .superRefine(forbidFsStorageInProduction)
+  .superRefine(forbidFileEmailInProduction);
 
 export const workerEnvSchema = baseSchema
   .extend({
@@ -82,6 +120,7 @@ export type WebEnv = z.infer<typeof webEnvSchema>;
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
 export type MigrateEnv = z.infer<typeof migrateEnvSchema>;
 export type StorageEnv = z.infer<typeof storageSchema>;
+export type EmailEnv = z.infer<typeof emailSchema>;
 
 type EnvSource = Readonly<Record<string, string | undefined>>;
 

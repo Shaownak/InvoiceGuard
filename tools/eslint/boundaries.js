@@ -5,7 +5,8 @@
 //  - core is pure: no Node builtins, DB, network, framework or logging imports; no clocks,
 //    randomness, timers or process access.
 //  - Raw Postgres drivers are allowed only inside packages/db, so app code cannot bypass
-//    withOrg() and row-level security.
+//    withOrg() and row-level security. Likewise only packages/db may name the
+//    `app.org_id` / `app.user_id` settings, so nothing else can switch its own tenant context.
 //  - Named exports only, except files where a framework or tool requires a default export.
 //
 // Flat config does not merge options of the same rule across config objects, so every
@@ -62,6 +63,19 @@ const NO_DEFAULT_EXPORT = {
   message: 'Use named exports (CLAUDE.md code conventions).',
 };
 
+// String or template literals naming the row-level security context settings.
+const CONTEXT_SETTING = String.raw`/app\.(org|user)_id/`;
+const RLS_CONTEXT_SYNTAX = [
+  {
+    selector: `Literal[value=${CONTEXT_SETTING}]`,
+    message: 'Only packages/db sets the RLS context (app.org_id / app.user_id). Use withOrg().',
+  },
+  {
+    selector: `TemplateElement[value.raw=${CONTEXT_SETTING}]`,
+    message: 'Only packages/db sets the RLS context (app.org_id / app.user_id). Use withOrg().',
+  },
+];
+
 const PURITY_SYNTAX = [
   {
     selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']",
@@ -109,7 +123,7 @@ export const boundaryConfigs = [
     name: 'invoiceguard/named-exports',
     files: ['{apps,packages,tools}/**/*.{ts,tsx,js,mjs}'],
     rules: {
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT],
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, ...RLS_CONTEXT_SYNTAX],
       'no-restricted-imports': ['error', { patterns: [CROSS_PACKAGE_RELATIVE] }],
     },
   },
@@ -138,7 +152,7 @@ export const boundaryConfigs = [
           ],
         },
       ],
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, ...PURITY_SYNTAX],
+      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, ...RLS_CONTEXT_SYNTAX, ...PURITY_SYNTAX],
       'no-restricted-globals': ['error', ...PURITY_GLOBALS],
     },
   },
@@ -159,6 +173,13 @@ export const boundaryConfigs = [
         },
       ],
     },
+  },
+  {
+    // packages/db owns the RLS context (withOrg / withUser); this file and its test define
+    // and exercise the rule, so they name the settings too.
+    name: 'invoiceguard/rls-context-owners',
+    files: ['packages/db/**/*.ts', 'tools/eslint/**/*.{js,ts}'],
+    rules: { 'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT] },
   },
   {
     name: 'invoiceguard/db',
@@ -196,6 +217,6 @@ export const boundaryConfigs = [
   {
     name: 'invoiceguard/default-export-exceptions',
     files: DEFAULT_EXPORT_ALLOWED,
-    rules: { 'no-restricted-syntax': 'off' },
+    rules: { 'no-restricted-syntax': ['error', ...RLS_CONTEXT_SYNTAX] },
   },
 ];
