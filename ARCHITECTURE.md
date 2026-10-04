@@ -91,10 +91,15 @@ Conventions: UUID v7 primary keys, `org_id` on every tenant table, `created_at`/
 
 ```
 organizations(id, name, slug unique, plan, stripe_customer_id, settings jsonb, created_at)
-users(id, email unique citext, name, password_hash, email_verified_at, created_at)
-memberships(id, org_id, user_id, role, created_at, unique(org_id,user_id))
-invites(id, org_id, email, role, token_hash, expires_at, accepted_at)
-sessions(id, user_id, expires_at, ...)
+users(id, email unique citext, name, email_verified_at, created_at, updated_at)
+user_credentials(user_id pk, password_hash, updated_at)   -- apart from users: co-members may read users (ADR-0015)
+memberships(id, org_id, user_id, role, created_at, updated_at, unique(org_id,user_id))
+invites(id, org_id, email, role, token_hash, invited_by, expires_at, accepted_at, accepted_by, revoked_at, created_at)
+  -- at most one open invite per (org_id, email)
+sessions(id, user_id, token_hash unique, active_org_id, user_agent, created_at, expires_at)
+  -- (active_org_id, user_id) references memberships ON DELETE SET NULL (active_org_id)
+auth_tokens(id, user_id, purpose verify_email|password_reset|magic_link, token_hash unique, expires_at, used_at, created_at)
+  -- tokens are stored as HMAC-SHA256(SESSION_SECRET, token) (ADR-0007)
 
 vendors(id, org_id, name, name_norm, tax_id, tax_id_norm, external_ref, status, created_at)
   -- unique(org_id, external_ref) where external_ref is not null; GIN trigram index on name_norm
@@ -149,8 +154,9 @@ Status transitions are implemented in one module (`packages/db/src/invoice-state
 
 - Every tenant table has `org_id NOT NULL` and an RLS policy: `USING (org_id = current_setting('app.org_id')::uuid)` plus a matching `WITH CHECK`.
 - The app connects as a non-superuser role that does **not** bypass RLS. Migrations run as a separate owner role.
-- Every request and every job runs its DB work in a transaction that begins with `SET LOCAL app.org_id = '<uuid>'`. A helper `withOrg(orgId, fn)` is the only way to obtain a tenant-scoped DB handle. Lint rule and code review forbid raw pool access outside `packages/db`.
-- Users and memberships are not tenant-scoped by RLS but are only reachable through auth helpers.
+- Every request and every job runs its DB work in a transaction that begins with `set_config('app.org_id', $1, true)` (transaction-local; ADR-0015). A helper `withOrg(orgId, fn)` is the only way to obtain a tenant-scoped DB handle. Lint rule and code review forbid raw pool access outside `packages/db`.
+- Every other table has RLS too (ADR-0015): identity tables are scoped by `app.user_id`; `withUser(userId, fn)` sets it for a user's own rows outside an org, and six reviewed `SECURITY DEFINER` functions (exposed as `db.auth`) are the only pre-authentication paths. With no context the app role sees nothing.
+- `audit_log` is append-only: the app role has only SELECT/INSERT and a trigger rejects UPDATE/DELETE/TRUNCATE for every role (ADR-0016).
 - **Required tests:** for each table, create rows in org A, then attempt select, update, delete, and insert as org B and assert zero rows or an error. A test enumerates all tables with an `org_id` column and fails if any lacks a policy.
 
 ## 6. Processing pipeline
@@ -251,9 +257,11 @@ Normalization utilities (`packages/core/src/normalize.ts`) with property-based t
 ## 9. API surface (REST, `/api/v1`, JSON, Zod-validated)
 
 ```
-POST   /auth/signup | /auth/login | /auth/logout | /auth/verify | /auth/reset
+POST   /auth/signup | /auth/login | /auth/logout | /auth/verify (+ /resend)
+POST   /auth/magic-link (+ /consume) | /auth/password-reset (+ /confirm)        (ADR-0007)
 GET    /me                               GET/POST /orgs            POST /orgs/:id/switch
-GET/POST /members  |  POST /invites  |  PATCH/DELETE /members/:id
+GET    /members  |  PATCH/DELETE /members/:id
+GET/POST /invites  |  DELETE /invites/:id  |  POST /invites/preview  |  POST /invites/accept
 
 POST   /imports/:kind                    GET /imports  |  GET /imports/:id
 GET    /vendors | /vendors/:id           GET /purchase-orders | /purchase-orders/:id
@@ -294,7 +302,7 @@ Conventions: cursor pagination, consistent error shape `{error:{code,message,det
 | Billing | yes | no | no | no | no |
 | Delete organization | yes | no | no | no | no |
 
-Permissions are defined once in `packages/shared/permissions.ts` as a typed map and enforced in a single `authorize(user, action)` helper used by every route. Tests iterate the whole matrix.
+Permissions are defined once in `packages/shared/permissions.ts` as a typed map and enforced in a single `authorize(user, action)` helper used by every route. Tests iterate the whole matrix. The "Confirm/dismiss findings" row is two capabilities: `findings.recommend` (reviewer and up) and `findings.resolve` (approver and up). Member changes add two rules: only an owner grants, changes or removes the owner role, and the last owner cannot be demoted or removed (`memberChangeRefusal`).
 
 ## 11. Observability
 
@@ -344,7 +352,8 @@ Permissions are defined once in `packages/shared/permissions.ts` as a typed map 
 DATABASE_URL, DATABASE_OWNER_URL, REDIS_URL
 STORAGE_DRIVER (s3|fs, fs is dev-only), STORAGE_FS_ROOT, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_FORCE_PATH_STYLE
 APP_URL, SESSION_SECRET, FIELD_ENCRYPTION_KEY, BANK_HASH_KEY
-SMTP_URL, EMAIL_FROM
+EMAIL_FROM, EMAIL_TRANSPORT (smtp|file, file is dev-only), SMTP_URL, EMAIL_FILE_DIR   (ADR-0017)
+TRUST_PROXY_HEADERS (trust X-Forwarded-For for the audit-log client IP)
 ANTHROPIC_API_KEY, EXTRACTION_PROVIDER (anthropic|mock), EXTRACTION_MODEL
 MODEL_PRICE_INPUT_PER_MTOK, MODEL_PRICE_OUTPUT_PER_MTOK
 STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_STARTER, STRIPE_PRICE_GROWTH, STRIPE_PRICE_RETRO

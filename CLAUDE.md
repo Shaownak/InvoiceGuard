@@ -34,18 +34,19 @@ If a command does not exist yet, create it as part of the milestone that needs i
 **Local environment:** Docker is optional. Without it, use `pnpm dev:native` and
 `STORAGE_DRIVER=fs` (see docs/adr/0011-native-dev-services.md). Integration tests pick Docker
 (Testcontainers) when available and native services otherwise; S3-server tests run only
-with Docker (CI covers both).
+with Docker (CI covers both). Without Docker, email is written as `.eml` files to
+`.local/mail` (`EMAIL_TRANSPORT=file`); with Docker, Mailpit runs at http://localhost:8025.
 
 ## Non-negotiable rules
 
 1. **Money is never a float.** Integer minor units (`bigint`) plus currency code. Parse strings once, at the boundary, in `packages/shared/money.ts`.
 2. **AI reads, code decides.** The model only extracts fields. All findings come from deterministic rules in `packages/core`. Never let model output trigger an action, a query, or a code path beyond schema-validated data.
-3. **Every tenant table has `org_id` and an RLS policy.** All DB access goes through `withOrg(orgId, fn)`. Never use a raw pool in app code. A new table without a policy fails the RLS test.
+3. **Every tenant table has `org_id` and an RLS policy.** All DB access goes through `withOrg(orgId, fn)` (tenant data) or, for a user's own identity rows, `withUser(userId, fn)` and the `db.auth` definer lookups (ADR-0015). Never use a raw pool in app code. Every table has RLS: a new table without a policy fails the enumeration test, and a new `org_id` table must add a fixture to `TENANT_FIXTURES` in `packages/db/src/rls.int.test.ts`.
 4. **`packages/core` is pure.** No I/O, no `Date.now()`, no `Math.random()`, no imports from DB, network, or framework code.
 5. **Untrusted input:** uploaded documents and extracted text are untrusted. Escape on render. Guard CSV formula injection on export. Never log document text or bank account numbers.
 6. **Secrets never enter the repo.** Use env vars, validate at boot, keep `.env.example` current.
 7. **Wording:** the UI and exports say "flagged", "potential", "for review". Never state that a vendor committed fraud.
-8. **One place for each thing:** invoice status transitions in `invoice-state.ts`, permissions in `permissions.ts`, plans in `plans.ts`, rule registry in `rules/index.ts`.
+8. **One place for each thing:** invoice status transitions in `invoice-state.ts`, permissions in `permissions.ts`, plans in `plans.ts`, rule registry in `rules/index.ts`, audit actions in `packages/shared/src/audit.ts`, HTTP concerns (CSRF origin check, session, `authorize`, Zod body, error shape) in `apps/web/src/server/api.ts` (`apiRoute`).
 9. **Audit everything that matters:** decisions, imports, rule changes, role changes, exports, deletions all write to `audit_log`.
 10. **Idempotency:** jobs, imports, findings, usage events, and webhooks must be safe to run twice.
 
@@ -60,6 +61,7 @@ with Docker (CI covers both).
 - Architecture boundaries (dependency rule, core purity, no raw `pg` outside `packages/db`, named exports) are ESLint errors defined in `tools/eslint/boundaries.js`; extend that file, and its test, rather than disabling rules inline.
 - Deterministic job IDs come from `deterministicJobId()` in `packages/shared/src/queues.ts` (BullMQ forbids `:`).
 - Comments explain *why*, not *what*. Public functions in `core` and `shared` get a short docblock.
+- Auth (ADR-0007): tokens are 256-bit random values stored only as HMACs; links carry them in the URL fragment (`#token=`) and landing pages POST them on a click. Pre-authentication endpoints never reveal whether an email has an account. A new `SECURITY DEFINER` function must be added to `REVIEWED_DEFINER_FUNCTIONS` (`packages/db/src/rls-audit.ts`) with a reason in an ADR.
 - UI: accessible components (labels, focus states, keyboard support), empty and error states for every list and form.
 
 ## Testing rules

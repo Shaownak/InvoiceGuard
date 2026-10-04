@@ -16,7 +16,7 @@ Two interchangeable ways to run backing services, selected by the developer:
 | Postgres 16    | `postgres:16.15-alpine`         | `embedded-postgres` 16.14 (official server binaries from npm, no admin rights). Data in `.local/postgres`             |
 | Redis          | `redis:8.4.7-alpine`            | `redis-memory-server`: Memurai Developer (Redis 8.2 compatible) on Windows, a Redis source build elsewhere. In-memory |
 | Object storage | RustFS (S3 API), see ADR-0012   | `STORAGE_DRIVER=fs` (`.local/storage`), forbidden in production                                                       |
-| Email          | Mailpit                         | not yet needed. M1 adds a native option (Mailpit is a single binary) or a file transport                              |
+| Email          | Mailpit                         | `EMAIL_TRANSPORT=file`: one `.eml` file per message in `.local/mail`, refused in production (ADR-0017)                |
 
 - Both paths use the **same** role bootstrap SQL (`infra/postgres/bootstrap-roles.sql`): the
   Docker init script runs it with psql; `tools/devinfra` runs it with `pg`.
